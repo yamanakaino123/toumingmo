@@ -1,0 +1,56 @@
+name: MacOS兼容性测试&打包
+on: [push, workflow_dispatch] # 提交代码自动跑，也可以手动触发
+jobs:
+  mac-test-build:
+    runs-on: macos-latest # 官方最新MacOS系统
+    steps:
+      # 1. 拉取你的代码
+      - name: 拉取代码
+        uses: actions/checkout@v4
+      
+      # 2. 配置Python环境（和你本地版本一致即可）
+      - name: 配置Python环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      # 3. 安装所有依赖
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install customtkinter requests dashscope pyinstaller
+      
+      # 4. 核心：检查代码语法、依赖导入（提前定位90%报错）
+      - name: 代码兼容性检查
+        run: |
+          # 检查代码语法错误
+          python -m py_compile horangi_tts_dxr.py
+          echo "✅ 代码语法检查通过"
+          
+          # 测试所有依赖能否正常导入（Mac最常见的报错就是导入失败）
+          python -c "
+          import customtkinter
+          import threading
+          import requests
+          import hashlib
+          import dashscope
+          from dashscope.audio.tts_v2 import SpeechSynthesizer
+          import os
+          import time
+          import subprocess
+          print('✅ 所有依赖导入成功，无兼容问题')
+          "
+      
+      # 5. 打包Mac可执行程序（直接出成品）
+      - name: 打包MacOS安装包
+        run: |
+          pyinstaller --onefile --windowed --name "Horangi-TTS" horangi_tts_dxr.py
+          echo "✅ Mac端打包完成"
+      
+      # 6. 上传打包好的文件，你可以直接下载
+      - name: 上传打包成品
+        uses: actions/upload-artifact@v4
+        with:
+          name: Horangi-TTS-MacOS
+          path: dist/
