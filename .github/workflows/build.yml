@@ -24,8 +24,14 @@ jobs:
         run: |
           pyinstaller --onefile --windowed --name "Horangi-TTS" --add-data ".:." --hidden-import customtkinter --hidden-import dashscope --hidden-import requests horangi_tts_dxr.py
       
+      # 关键修复：把.app打包成zip再上传，保留完整结构
+      - name: Zip the app
+        run: |
+          cd dist
+          zip -r Horangi-TTS-Mac-App.zip Horangi-TTS.app
+      
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: Horangi-TTS-Mac-App
-          path: dist/Horangi-TTS.app
+          path: dist/Horangi-TTS-Mac-App.zip
