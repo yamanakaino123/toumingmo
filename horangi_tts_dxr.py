@@ -106,7 +106,7 @@ class AnimeTTSApp(ctk.CTk):
         except:
             return text
 
-    # 修复：Mac打包后100%生成音频+播放
+    # 修复：Mac打包后生成音频+播放
     def speak_horangi(self, text):
         # 固定生成到用户目录，绝对路径解决打包路径问题
         temp_file = os.path.expanduser(f"~/temp_{int(time.time()*1000)}.mp3")
@@ -118,14 +118,18 @@ class AnimeTTSApp(ctk.CTk):
                 voice=VOICE_ID,
                 format="mp3"
             )
-            audio_data = synthesizer.call(text.strip())
+            # 修复核心：处理SpeechSynthesizer返回的迭代器数据
+            audio_data = b""
+            for chunk in synthesizer.call(text.strip()):
+                if chunk:
+                    audio_data += chunk
             
             # 写入文件（生成）
             with open(temp_file, "wb") as f:
                 f.write(audio_data)
 
             self.status.configure(text="🔊 播放中...", text_color="#009670")
-            # Mac最稳定播放方式
+            # Mac稳定播放方式
             subprocess.run(["afplay", temp_file])
             
             # 播放完成清理
