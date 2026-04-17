@@ -1,0 +1,31 @@
+name: Build Mac App
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+      
+      - name: Build app with PyInstaller
+        run: |
+          pyinstaller --onefile --windowed --name "Horangi-TTS" --add-data ".:." --hidden-import customtkinter --hidden-import dashscope --hidden-import requests horangi_tts_dxr.py
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Horangi-TTS-Mac-App
+          path: dist/Horangi-TTS.app
