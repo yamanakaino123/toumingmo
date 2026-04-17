@@ -23,6 +23,8 @@ TARGET_MODEL = "cosyvoice-v3.5-flash"
 VOICE_ID = "cosyvoice-v3.5-flash-dxrvoice-021dcaef180646d99a071e28cc6c80e9"
 dashscope.base_http_api_url = "https://dashscope.aliyuncs.com/api/v1"
 # ======================================================================
+
+
 class AnimeTTSApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -37,9 +39,9 @@ class AnimeTTSApp(ctk.CTk):
         main_frame.pack(expand=True, fill="both", padx=20, pady=15)
 
         self.label = ctk.CTkLabel(
-            main_frame, 
-            text="🐯 KORTAC - HORANGI", 
-            font=("Arial", 15, "bold"), 
+            main_frame,
+            text="🐯 KORTAC - HORANGI",
+            font=("Arial", 15, "bold"),
             text_color="#009670"
         )
         self.label.pack(pady=(0, 10))
@@ -47,23 +49,23 @@ class AnimeTTSApp(ctk.CTk):
         self.input_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         self.input_frame.pack(fill="x", pady=5)
         self.entry = ctk.CTkEntry(
-            self.input_frame, 
-            placeholder_text=" HORANGI is waiting...", 
-            height=50, 
-            font=("Arial", 16), 
+            self.input_frame,
+            placeholder_text=" HORANGI is waiting...",
+            height=50,
+            font=("Arial", 16),
             corner_radius=12
         )
         self.entry.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(0, 10))
         self.entry.bind("<Return>", self.on_submit)
-        
+
         self.lang_btn = ctk.CTkButton(
-            self.input_frame, 
-            text="En", 
-            width=50, 
-            height=50, 
-            corner_radius=25, 
-            fg_color="#009670", 
-            font=("Impact", 18), 
+            self.input_frame,
+            text="En",
+            width=50,
+            height=50,
+            corner_radius=25,
+            fg_color="#009670",
+            font=("Impact", 18),
             command=self.toggle_language
         )
         self.lang_btn.pack(side=ctk.RIGHT)
@@ -102,13 +104,13 @@ class AnimeTTSApp(ctk.CTk):
             res = requests.get(
                 "https://api.fanyi.baidu.com/api/trans/vip/translate",
                 params={
-                    "q": text, 
-                    "from": "zh", 
-                    "to": self.current_lang, 
-                    "appid": BAIDU_APP_ID, 
-                    "salt": salt, 
+                    "q": text,
+                    "from": "zh",
+                    "to": self.current_lang,
+                    "appid": BAIDU_APP_ID,
+                    "salt": salt,
                     "sign": sign
-                }, 
+                },
                 timeout=4
             )
             res.encoding = 'utf-8'
@@ -126,41 +128,34 @@ class AnimeTTSApp(ctk.CTk):
                 voice=VOICE_ID,
                 format="mp3"
             )
-            
-            audio_data = b""
-            # 获取返回结果
-            result = synthesizer.call(text.strip())
-            
-            # 修复：判断返回的是不是生成器/字节流
-            if isinstance(result, str):
-                raise Exception(f"API返回错误信息: {result}")
-            
-            for chunk in result:
-                if isinstance(chunk, bytes):
-                    audio_data += chunk
-                else:
-                    # 如果拿到的不是bytes，可能是报错对象
-                    if hasattr(chunk, 'message'):
-                        raise Exception(chunk.message)
-            
-            if not audio_data:
-                raise Exception("未生成音频数据")
 
+            # 1. 尝试调用 API
+            responses = synthesizer.call(text.strip())
+
+            # 2. 检查返回结果并写入文件
             with open(temp_file, "wb") as f:
-                f.write(audio_data)
+                for response in responses:
+                    if response.status_code == 200:
+                        # 修复：使用 get_audio_data() 获取字节流
+                        f.write(response.get_audio_data())
+                    else:
+                        # 如果 API 报错，抛出详细信息
+                        raise Exception(f"API错误({response.status_code}): {response.message}")
 
+            # 3. 播放逻辑
             self.status.configure(text="🔊 播放中...", text_color="#009670")
             subprocess.run(["afplay", temp_file])
-            
+
+            # 4. 清理
             if os.path.exists(temp_file):
                 os.remove(temp_file)
             self.status.configure(text="✅ 完成", text_color="gray")
 
         except Exception as e:
-            # 这里的报错会显示在 GUI 界面上，定位到底是 Key 错了还是网络
-            error_msg = str(e)
-            print(f"详细错误: {error_msg}") # 控制台也能看
-            self.status.configure(text=f"❌ {error_msg[:25]}", text_color="red")
+            # 报错显示
+            error_info = str(e)
+            print(f"DEBUG ERROR: {error_info}")
+            self.status.configure(text=f"❌ {error_info[:20]}", text_color="red")
             if os.path.exists(temp_file):
                 os.remove(temp_file)
 
@@ -176,6 +171,7 @@ class AnimeTTSApp(ctk.CTk):
             self.speak_horangi(trans_text)
         finally:
             self.is_processing = False
+
 
 if __name__ == "__main__":
     app = AnimeTTSApp()
