@@ -1,5 +1,5 @@
 import customtkinter as ctk
-# Mac专属修复：解决空白界面
+# 修复：解决空白界面
 ctk.deactivate_automatic_dpi_awareness()
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
@@ -99,8 +99,18 @@ class AnimeTTSApp(ctk.CTk):
         try:
             salt = str(random.randint(32768, 65536))
             sign = hashlib.md5((BAIDU_APP_ID + text + salt + BAIDU_APP_KEY).encode('utf-8')).hexdigest()
-            res = requests.get("https://api.fanyi.baidu.com/api/trans/vip/translate",
-                params={"q": text, "from": "zh", "to": self.current_lang, "appid": BAIDU_APP_ID, "salt": salt, "sign": sign}, timeout=4)
+            res = requests.get(
+                "https://api.fanyi.baidu.com/api/trans/vip/translate",
+                params={
+                    "q": text, 
+                    "from": "zh", 
+                    "to": self.current_lang, 
+                    "appid": BAIDU_APP_ID, 
+                    "salt": salt, 
+                    "sign": sign
+                }, 
+                timeout=4
+            )
             res.encoding = 'utf-8'
             return res.json()['trans_result'][0]['dst']
         except:
@@ -108,38 +118,49 @@ class AnimeTTSApp(ctk.CTk):
 
     # 修复：Mac打包后生成音频+播放
     def speak_horangi(self, text):
-        # 固定生成到用户目录，绝对路径解决打包路径问题
         temp_file = os.path.expanduser(f"~/temp_{int(time.time()*1000)}.mp3")
         try:
             self.status.configure(text="🔊 生成语音中...", text_color="#009670")
-            # 修复Mac打包兼容：简化初始化
             synthesizer = SpeechSynthesizer(
                 model=TARGET_MODEL,
                 voice=VOICE_ID,
                 format="mp3"
             )
-            # 修复核心：处理SpeechSynthesizer返回的迭代器数据
-            audio_data = b""
-            for chunk in synthesizer.call(text.strip()):
-                if chunk:
-                    audio_data += chunk
             
-            # 写入文件（生成）
+            audio_data = b""
+            # 获取返回结果
+            result = synthesizer.call(text.strip())
+            
+            # 修复：判断返回的是不是生成器/字节流
+            if isinstance(result, str):
+                raise Exception(f"API返回错误信息: {result}")
+            
+            for chunk in result:
+                if isinstance(chunk, bytes):
+                    audio_data += chunk
+                else:
+                    # 如果拿到的不是bytes，可能是报错对象
+                    if hasattr(chunk, 'message'):
+                        raise Exception(chunk.message)
+            
+            if not audio_data:
+                raise Exception("未生成音频数据")
+
             with open(temp_file, "wb") as f:
                 f.write(audio_data)
 
             self.status.configure(text="🔊 播放中...", text_color="#009670")
-            # Mac稳定播放方式
             subprocess.run(["afplay", temp_file])
             
-            # 播放完成清理
             if os.path.exists(temp_file):
                 os.remove(temp_file)
             self.status.configure(text="✅ 完成", text_color="gray")
 
         except Exception as e:
-            self.status.configure(text=f"❌ 错误：{str(e)[:20]}", text_color="red")
-            # 异常清理
+            # 这里的报错会显示在 GUI 界面上，定位到底是 Key 错了还是网络
+            error_msg = str(e)
+            print(f"详细错误: {error_msg}") # 控制台也能看
+            self.status.configure(text=f"❌ {error_msg[:25]}", text_color="red")
             if os.path.exists(temp_file):
                 os.remove(temp_file)
 
