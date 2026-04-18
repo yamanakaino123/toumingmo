@@ -1,5 +1,8 @@
 import customtkinter as ctk
-ctk.deactivate_automatic_dpi_awareness()
+import sys
+# ===================== 跨平台初始化适配 =====================
+if sys.platform == "win32":
+    ctk.deactivate_automatic_dpi_awareness()
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
 
@@ -11,10 +14,10 @@ import dashscope
 from dashscope.audio.tts_v2 import SpeechSynthesizer
 import os
 import time
-import sys
-import subprocess  #  新增：用于macOS/Linux
+import subprocess
+import tempfile  # 引入系统临时文件模块，解决全平台写入权限
 
-# ===================== 核心配置 =====================
+# ===================== 核心配置（保留原密钥） =====================
 BAIDU_APP_ID = '20260415002594998'
 BAIDU_APP_KEY = 'QypzL518sg87_JMdd26y'
 dashscope.api_key = 'sk-177a106c48d446759cdb749a03bf26a0'
@@ -22,7 +25,6 @@ TARGET_MODEL = "cosyvoice-v3.5-flash"
 VOICE_ID = "cosyvoice-v3.5-flash-dxrvoice-021dcaef180646d99a071e28cc6c80e9"
 dashscope.base_http_api_url = "https://dashscope.aliyuncs.com/api/v1"
 # ======================================================================
-
 
 class AnimeTTSApp(ctk.CTk):
     def __init__(self):
@@ -34,6 +36,7 @@ class AnimeTTSApp(ctk.CTk):
         self.current_lang = "en"
         self.is_processing = False
 
+        # UI布局（保持原样）
         main_frame = ctk.CTkFrame(self, fg_color="transparent")
         main_frame.pack(expand=True, fill="both", padx=20, pady=15)
 
@@ -45,6 +48,7 @@ class AnimeTTSApp(ctk.CTk):
 
         self.input_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         self.input_frame.pack(fill="x", pady=5)
+
         self.entry = ctk.CTkEntry(
             self.input_frame, placeholder_text=" HORANGI is waiting...",
             height=50, font=("Arial", 16), corner_radius=12
@@ -88,55 +92,74 @@ class AnimeTTSApp(ctk.CTk):
                 "https://api.fanyi.baidu.com/api/trans/vip/translate",
                 params={"q": text, "from": "zh", "to": self.current_lang,
                         "appid": BAIDU_APP_ID, "salt": salt, "sign": sign},
-                timeout=4
+                timeout=10
             )
             res.encoding = 'utf-8'
             return res.json()['trans_result'][0]['dst']
         except Exception as e:
             print(f"翻译异常: {e}")
+            # 线程安全的UI更新
+            self.after(0, lambda: self.status.configure(text="❌ 翻译失败", text_color="red"))
             return text
 
     def speak_horangi(self, text):
-        temp_file = f"temp_{int(time.time()*1000)}.mp3"
+        temp_file = None
         try:
-            self.status.configure(text="🔊 生成中...", text_color="#009670")
-
+            # 线程安全更新状态
+            self.after(0, lambda: self.status.configure(text="🔊 生成中...", text_color="#009670"))
             synthesizer = SpeechSynthesizer(model=TARGET_MODEL, voice=VOICE_ID)
             
-            # 获取完整音频字节流
-            audio_data = synthesizer.call(text.strip())
+            # 1. 输入文本校验
+            clean_text = text.strip()
+            if not clean_text:
+                raise Exception("输入文本为空")
+
+            # 2. 【核心优化】严格拦截 dashscope 异常返回值
+            result = synthesizer.call(clean_text)
             
-            # 校验音频数据有效性
-            if not isinstance(audio_data, bytes) or len(audio_data) == 0:
-                raise Exception("未生成有效音频数据")
+            # 拦截字符串错误信息
+            if isinstance(result, str):
+                raise Exception(f"API错误: {result[:50]}")
+            # 拦截字典格式错误（部分版本SDK）
+            elif isinstance(result, dict):
+                err_msg = result.get("message", str(result))
+                raise Exception(f"API失败: {err_msg[:50]}")
+            # 拦截非字节流类型
+            elif not isinstance(result, bytes):
+                raise Exception(f"未知返回类型: {type(result)}")
+            
+            audio_data = result
+            
+            # 3. 额外校验音频数据长度
+            if len(audio_data) < 100:
+                raise Exception(f"音频过短 ({len(audio_data)}字节)")
 
-            print(f"✅ 成功获取音频，字节长度: {len(audio_data)}")
+            print(f"✅ 音频生成成功，长度: {len(audio_data)}")
 
-            # 写入临时文件
-            with open(temp_file, "wb") as f:
+            # 4. 使用系统临时目录（全平台权限兼容）
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                temp_file = f.name
                 f.write(audio_data)
 
-            # 修复：跨平台播放兼容
+            # 5. 跨平台播放优化
             if sys.platform == "win32":
-                # Windows系统
                 os.startfile(temp_file)
             elif sys.platform == "darwin":
-                # macOS系统：调用系统open命令，用默认播放器打开
-                subprocess.run(["open", temp_file], check=True)
+                # macOS 用 afplay 后台播放，无弹窗
+                subprocess.run(["afplay", temp_file], capture_output=True, text=True)
             else:
-                # Linux系统
-                subprocess.run(["xdg-open", temp_file], check=True)
+                subprocess.run(["xdg-open", temp_file], capture_output=True, text=True)
 
-            self.status.configure(text="✅ 播放成功", text_color="gray")
-
-            # 自动清理临时文件
-            threading.Timer(3, lambda: os.remove(temp_file) if os.path.exists(temp_file) else None).start()
+            self.after(0, lambda: self.status.configure(text="✅ 播放成功", text_color="gray"))
 
         except Exception as e:
-            print(f"错误详情: {e}")
-            self.status.configure(text=f"❌ {str(e)[:30]}", text_color="red")
-            if os.path.exists(temp_file):
-                os.remove(temp_file)
+            print(f"❌ 错误详情: {e}")
+            # 线程安全显示错误（截取前40字符）
+            self.after(0, lambda: self.status.configure(text=f"❌ {str(e)[:40]}", text_color="red"))
+        finally:
+            # 兜底清理临时文件
+            if temp_file and os.path.exists(temp_file):
+                threading.Timer(1, lambda: os.remove(temp_file) if os.path.exists(temp_file) else None).start()
 
     def on_submit(self, e):
         txt = self.entry.get().strip()
@@ -151,7 +174,6 @@ class AnimeTTSApp(ctk.CTk):
             self.speak_horangi(trans_text)
         finally:
             self.is_processing = False
-
 
 if __name__ == "__main__":
     app = AnimeTTSApp()
